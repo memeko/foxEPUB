@@ -1,5 +1,6 @@
 import io
 import re
+from functools import lru_cache
 import zipfile
 from flask import Flask, render_template, request, send_file, flash, redirect, url_for
 from werkzeug.utils import secure_filename
@@ -74,15 +75,17 @@ def split_russian_syllables(word: str) -> list[str]:
     return syllables
 
 
-def bold_first_syllable(word: str) -> str:
+@lru_cache(maxsize=50000)
+def first_syllable_parts(word: str) -> tuple[str, str]:
     syllables = split_russian_syllables(word)
     if not syllables:
-        return word
+        return word, ""
     first = syllables[0]
     rest = word[len(first):]
-    return f"<strong>{first}</strong>{rest}"
+    return first, rest
 
-def bold_bionic(word: str) -> str:
+@lru_cache(maxsize=50000)
+def bionic_parts(word: str) -> tuple[str, str]:
     length = len(word)
     if length <= 3:
         n = length
@@ -94,9 +97,12 @@ def bold_bionic(word: str) -> str:
         n = 3
     else:
         n = max(3, length // 3)
-    return f"<strong>{word[:n]}</strong>{word[n:]}"
+    return word[:n], word[n:]
 
-def build_nodes_for_text(soup: BeautifulSoup, text: str, mode: str) -> list:
+def build_nodes_for_text(soup: BeautifulSoup, text: str, mode: str) -> list | None:
+    if not TOKEN_RE.search(text):
+        return None
+
     nodes = []
     i = 0
     for match in TOKEN_RE.finditer(text):
@@ -106,15 +112,11 @@ def build_nodes_for_text(soup: BeautifulSoup, text: str, mode: str) -> list:
         token = match.group(0)
         if WORD_RE.fullmatch(token):
             if mode == "bionic":
-                n = bold_bionic(token)
+                strong_text, rest_text = bionic_parts(token)
             else:
-                n = bold_first_syllable(token)
+                strong_text, rest_text = first_syllable_parts(token)
 
-            # Build nodes without reparsing HTML
-            if n.startswith("<strong>") and "</strong>" in n:
-                end = n.find("</strong>")
-                strong_text = n[len("<strong>"):end]
-                rest_text = n[end + len("</strong>"):]
+            if strong_text:
                 strong_tag = soup.new_tag("strong")
                 strong_tag.string = strong_text
                 nodes.append(strong_tag)
