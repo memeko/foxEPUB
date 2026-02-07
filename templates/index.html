@@ -58,10 +58,25 @@
           <button class="btn primary" type="submit">Конвертировать</button>
         </form>
 
+        <div class="warning">
+          Важно: при включённых флажках «Приглушать пунктуацию» и «Пустые строки между абзацами»
+          возможна ошибка <strong>Internal Server Error</strong> из-за превышения лимита памяти на
+          бесплатном хостинге. Рекомендуется использовать эти опции только для очень маленьких книг.
+        </div>
+
         <p class="note">
           Обработка затрагивает только текст в &lt;body&gt;, изображения и оглавление сохраняются.
         </p>
       </section>
+      <footer class="credits">
+        <div class="credits__label">Авторство</div>
+        <div class="credits__text">
+          Идея и постановка — Братец Лис. Код — ассистент Codex.
+        </div>
+        <a class="credits__link" href="https://t.me/brfox_cosplay" target="_blank" rel="noopener noreferrer">
+          t.me/brfox_cosplay
+        </a>
+      </footer>
     </div>
   </body>
 </html>
