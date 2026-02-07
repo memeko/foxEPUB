@@ -99,13 +99,19 @@ def bionic_parts(word: str) -> tuple[str, str]:
         n = max(3, length // 3)
     return word[:n], word[n:]
 
-def build_nodes_for_text(soup: BeautifulSoup, text: str, mode: str) -> list | None:
-    if not TOKEN_RE.search(text):
+def build_nodes_for_text(
+    soup: BeautifulSoup,
+    text: str,
+    mode: str,
+    dim_punct: bool,
+) -> list | None:
+    token_re = TOKEN_RE if dim_punct else WORD_RE
+    if not token_re.search(text):
         return None
 
     nodes = []
     i = 0
-    for match in TOKEN_RE.finditer(text):
+    for match in token_re.finditer(text):
         if match.start() > i:
             nodes.append(NavigableString(text[i:match.start()]))
 
@@ -125,9 +131,12 @@ def build_nodes_for_text(soup: BeautifulSoup, text: str, mode: str) -> list | No
             else:
                 nodes.append(NavigableString(token))
         else:
-            span = soup.new_tag("span", **{"class": "punct"})
-            span.string = token
-            nodes.append(span)
+            if dim_punct:
+                span = soup.new_tag("span", **{"class": "punct"})
+                span.string = token
+                nodes.append(span)
+            else:
+                nodes.append(NavigableString(token))
 
         i = match.end()
 
@@ -155,15 +164,14 @@ def ensure_style(soup: BeautifulSoup) -> None:
         return
     style = soup.new_tag("style", id="speedread-style", type="text/css")
     style.string = (
-        "p { text-indent: 1.25em; margin-top: 0; margin-bottom: 0; }"
-        " p + p { margin-top: 0; }"
+        "p { text-indent: 1.25em; margin-top: 0; margin-bottom: 1em; }"
         " .sr-gap { text-indent: 0; margin: 0 0 1em 0; }"
         " .punct { color: #666; opacity: 0.65; }"
     )
     head.append(style)
 
 
-def process_html_bytes(data: bytes, mode: str) -> bytes:
+def process_html_bytes(data: bytes, mode: str, dim_punct: bool, blank_lines: bool) -> bytes:
     soup = BeautifulSoup(data, "html.parser")
     body = soup.body
     if not body:
@@ -179,25 +187,26 @@ def process_html_bytes(data: bytes, mode: str) -> bytes:
             if parent and parent.name in {"script", "style"}:
                 continue
             original = str(text_node)
-            nodes = build_nodes_for_text(soup, original, mode)
+            nodes = build_nodes_for_text(soup, original, mode, dim_punct)
             if nodes:
                 replace_text_node(text_node, nodes)
 
-    # Insert empty paragraph gaps between paragraphs to enforce visible blank lines in readers
-    paragraphs = body.find_all("p")
-    for p in paragraphs:
-        next_sibling = p.find_next_sibling()
-        if next_sibling and next_sibling.name == "p" and "sr-gap" in next_sibling.get("class", []):
-            continue
-        gap = soup.new_tag("p")
-        gap["class"] = ["sr-gap"]
-        gap.append(soup.new_string("\u00a0"))
-        p.insert_after(gap)
+    if blank_lines:
+        # Insert empty paragraph gaps between paragraphs to enforce visible blank lines in readers
+        paragraphs = body.find_all("p")
+        for p in paragraphs:
+            next_sibling = p.find_next_sibling()
+            if next_sibling and next_sibling.name == "p" and "sr-gap" in next_sibling.get("class", []):
+                continue
+            gap = soup.new_tag("p")
+            gap["class"] = ["sr-gap"]
+            gap.append(soup.new_string("\u00a0"))
+            p.insert_after(gap)
 
     return str(soup).encode("utf-8")
 
 
-def process_epub(epub_bytes: bytes, mode: str) -> bytes:
+def process_epub(epub_bytes: bytes, mode: str, dim_punct: bool, blank_lines: bool) -> bytes:
     input_io = io.BytesIO(epub_bytes)
     output_io = io.BytesIO()
 
@@ -206,7 +215,7 @@ def process_epub(epub_bytes: bytes, mode: str) -> bytes:
             data = zin.read(info.filename)
             lower = info.filename.lower()
             if lower.endswith((".xhtml", ".html", ".htm")):
-                data = process_html_bytes(data, mode)
+                data = process_html_bytes(data, mode, dim_punct, blank_lines)
 
             new_info = zipfile.ZipInfo(filename=info.filename, date_time=info.date_time)
             new_info.compress_type = info.compress_type
@@ -248,8 +257,10 @@ def convert():
 
     epub_bytes = file.read()
     mode = request.form.get("mode", "syllable")
+    dim_punct = request.form.get("dim_punct") == "on"
+    blank_lines = request.form.get("blank_lines") == "on"
     try:
-        out_bytes = process_epub(epub_bytes, mode)
+        out_bytes = process_epub(epub_bytes, mode, dim_punct, blank_lines)
     except zipfile.BadZipFile:
         flash("Файл не похож на EPUB (поврежденный ZIP)")
         return redirect(url_for("index"))
