@@ -140,12 +140,11 @@ def build_nodes_for_text(soup: BeautifulSoup, text: str, mode: str) -> list | No
 def replace_text_node(text_node, nodes: list) -> None:
     if not nodes:
         return
-    first = nodes[0]
-    text_node.replace_with(first)
-    current = first
-    for node in nodes[1:]:
-        current.insert_after(node)
-        current = node
+    prev = text_node
+    for node in nodes:
+        prev.insert_after(node)
+        prev = node
+    text_node.extract()
 
 
 def ensure_style(soup: BeautifulSoup) -> None:
